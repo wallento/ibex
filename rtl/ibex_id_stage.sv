@@ -37,6 +37,7 @@ module ibex_id_stage #(
     input  logic [31:0]               instr_rdata_alu_i,     // from IF-ID pipeline registers
     input  logic [15:0]               instr_rdata_c_i,       // from IF-ID pipeline registers
     input  logic                      instr_is_compressed_i,
+    input  logic                      instr_bp_taken_i,
     output logic                      instr_req_o,
     output logic                      instr_first_cycle_id_o,
     output logic                      instr_valid_clear_o,   // kill instr in IF-ID reg
@@ -191,6 +192,7 @@ module ibex_id_stage #(
 
   logic        branch_in_dec;
   logic        branch_set, branch_set_d;
+  logic        branch_not_set;
   logic        branch_taken;
   logic        jump_in_dec;
   logic        jump_set_dec;
@@ -518,6 +520,7 @@ module ibex_id_stage #(
       .instr_i                        ( instr_rdata_i           ),
       .instr_compressed_i             ( instr_rdata_c_i         ),
       .instr_is_compressed_i          ( instr_is_compressed_i   ),
+      .instr_bp_taken_i               ( instr_bp_taken_i        ),
       .instr_fetch_err_i              ( instr_fetch_err_i       ),
       .instr_fetch_err_plus2_i        ( instr_fetch_err_plus2_i ),
       .pc_id_i                        ( pc_id_i                 ),
@@ -542,6 +545,7 @@ module ibex_id_stage #(
 
       // jump/branch control
       .branch_set_i                   ( branch_set              ),
+      .branch_not_set_i               ( branch_not_set          ),
       .jump_set_i                     ( jump_set                ),
 
       // interrupt signals
@@ -694,6 +698,7 @@ module ibex_id_stage #(
     stall_branch            = 1'b0;
     stall_alu               = 1'b0;
     branch_set_d            = 1'b0;
+    branch_not_set          = 1'b0;
     jump_set                = 1'b0;
     perf_branch_o           = 1'b0;
 
@@ -725,11 +730,12 @@ module ibex_id_stage #(
               // cond branch operation
               // All branches take two cycles in fixed time execution mode, regardless of branch
               // condition.
-              id_fsm_d      = (data_ind_timing_i || (!BranchTargetALU && branch_decision_i)) ?
-                                  MULTI_CYCLE : FIRST_CYCLE;
-              stall_branch  = (~BranchTargetALU & branch_decision_i) | data_ind_timing_i;
-              branch_set_d  = branch_decision_i | data_ind_timing_i;
-              perf_branch_o = 1'b1;
+              id_fsm_d          = (data_ind_timing_i || (!BranchTargetALU && branch_decision_i)) ?
+                                      MULTI_CYCLE : FIRST_CYCLE;
+              stall_branch      = (~BranchTargetALU & branch_decision_i) | data_ind_timing_i;
+              branch_set_d      = branch_decision_i | data_ind_timing_i;
+              branch_not_set    = ~branch_decision_i;
+              perf_branch_o     = 1'b1;
             end
             jump_in_dec: begin
               // uncond branch operation

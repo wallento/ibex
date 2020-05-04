@@ -117,6 +117,7 @@ module ibex_core #(
                                                // fan-out)
   logic [15:0] instr_rdata_c_id;               // Compressed instruction sampled inside IF stage
   logic        instr_is_compressed_id;
+  logic        instr_bp_taken_id;
   logic        instr_fetch_err;                // Bus error on instr fetch
   logic        instr_fetch_err_plus2;          // Instruction error is misaligned
   logic        illegal_c_insn_id;              // Illegal compressed instruction sent to ID stage
@@ -398,6 +399,7 @@ module ibex_core #(
       .instr_rdata_alu_id_o     ( instr_rdata_alu_id     ),
       .instr_rdata_c_id_o       ( instr_rdata_c_id       ),
       .instr_is_compressed_id_o ( instr_is_compressed_id ),
+      .instr_bp_taken_o         ( instr_bp_taken_id      ),
       .instr_fetch_err_o        ( instr_fetch_err        ),
       .instr_fetch_err_plus2_o  ( instr_fetch_err_plus2  ),
       .illegal_c_insn_id_o      ( illegal_c_insn_id      ),
@@ -466,6 +468,7 @@ module ibex_core #(
       .instr_rdata_alu_i            ( instr_rdata_alu_id       ),
       .instr_rdata_c_i              ( instr_rdata_c_id         ),
       .instr_is_compressed_i        ( instr_is_compressed_id   ),
+      .instr_bp_taken_i             ( instr_bp_taken_id        ),
 
       // Jumps and branches
       .branch_decision_i            ( branch_decision          ),

@@ -45,6 +45,8 @@ module ibex_if_stage #(
                                                             // instr_is_compressed_id_o = 1'b1
     output logic                  instr_is_compressed_id_o, // compressed decoder thinks this
                                                             // is a compressed instr
+    output logic                  instr_bp_taken_o,         // instruction was predicted to be
+                                                            // a taken branch
     output logic                  instr_fetch_err_o,        // bus error on fetch
     output logic                  instr_fetch_err_plus2_o,  // bus error misaligned
     output logic                  illegal_c_insn_id_o,      // compressed decoder thinks this
@@ -99,6 +101,7 @@ module ibex_if_stage #(
   logic              fetch_ready;
   logic       [31:0] fetch_rdata;
   logic       [31:0] fetch_addr;
+  logic       [31:0] fetch_addr_next;
   logic              fetch_err;
   logic              fetch_err_plus2;
 
@@ -116,6 +119,12 @@ module ibex_if_stage #(
   logic              instr_is_compressed_out;
   logic              illegal_c_instr_out;
   logic              instr_err_out;
+  logic              predict_branch_taken;
+  logic       [31:0] predict_branch_pc;
+
+  logic       [31:0] instr_branch_nt_addr_q;
+
+  ibex_pkg::pc_sel_e pc_mux_internal;
 
   logic        [7:0] unused_boot_addr;
   logic        [7:0] unused_csr_mtvec;
@@ -126,6 +135,10 @@ module ibex_if_stage #(
   // extract interrupt ID from exception cause
   assign irq_id         = {exc_cause};
   assign unused_irq_bit = irq_id[5];   // MSB distinguishes interrupts from exceptions
+
+  // The Branch predictor can provide a new PC which is internal to if_stage. Only override the mux
+  // select to choose this if the core isn't already trying to set a PC.
+  assign pc_mux_internal = predict_branch_taken & ~pc_set_i ? PC_BP : pc_mux_i;
 
   // exception PC selection mux
   always_comb begin : exc_pc_mux
@@ -140,12 +153,14 @@ module ibex_if_stage #(
 
   // fetch address selection mux
   always_comb begin : fetch_addr_mux
-    unique case (pc_mux_i)
+    unique case (pc_mux_internal)
       PC_BOOT: fetch_addr_n = { boot_addr_i[31:8], 8'h80 };
       PC_JUMP: fetch_addr_n = branch_target_ex_i;
       PC_EXC:  fetch_addr_n = exc_pc;                       // set PC to exception handler
       PC_ERET: fetch_addr_n = csr_mepc_i;                   // restore PC when returning from EXC
       PC_DRET: fetch_addr_n = csr_depc_i;
+      PC_BP:   fetch_addr_n = predict_branch_pc;
+      PC_B_NT: fetch_addr_n = instr_branch_nt_addr_q;
       default: fetch_addr_n = { boot_addr_i[31:8], 8'h80 };
     endcase
   end
@@ -200,6 +215,7 @@ module ibex_if_stage #(
         .valid_o           ( fetch_valid                 ),
         .rdata_o           ( fetch_rdata                 ),
         .addr_o            ( fetch_addr                  ),
+        .addr_next_o       ( fetch_addr_next             ),
         .err_o             ( fetch_err                   ),
         .err_plus2_o       ( fetch_err_plus2             ),
 
@@ -219,8 +235,17 @@ module ibex_if_stage #(
     assign unused_icinv = icache_inval_i;
   end
 
-  assign branch_req  = pc_set_i;
   assign fetch_ready = id_in_ready_i & ~stall_dummy_instr;
+  ibex_branch_predict branch_predict_i (
+    .fetch_rdata            ( fetch_rdata          ),
+    .fetch_pc               ( fetch_addr           ),
+    .fetch_valid            ( fetch_valid          ),
+
+    .predict_branch_taken_o ( predict_branch_taken ),
+    .predict_branch_pc_o    ( predict_branch_pc    )
+  );
+
+  assign branch_req  = pc_set_i | (predict_branch_taken & id_in_ready_i);
 
   assign pc_if_o     = fetch_addr;
   assign if_busy_o   = prefetch_busy;
@@ -336,7 +361,10 @@ module ibex_if_stage #(
       instr_rdata_c_id_o       <= fetch_rdata[15:0];
       instr_is_compressed_id_o <= instr_is_compressed_out;
       illegal_c_insn_id_o      <= illegal_c_instr_out;
+      instr_bp_taken_o         <= predict_branch_taken;
       pc_id_o                  <= pc_if_o;
+
+      instr_branch_nt_addr_q   <= fetch_addr_next;
     end
   end
 
@@ -346,12 +374,15 @@ module ibex_if_stage #(
 
   // Selectors must be known/valid.
   `ASSERT_KNOWN(IbexExcPcMuxKnown, exc_pc_mux_i)
-  `ASSERT(IbexPcMuxValid, pc_mux_i inside {
+  `ASSERT_IF(IbexPcMuxValid, pc_mux_internal inside {
       PC_BOOT,
       PC_JUMP,
       PC_EXC,
       PC_ERET,
-      PC_DRET})
+      PC_DRET,
+      PC_BP,
+      PC_B_NT},
+    pc_set_i)
 
   // Boot address must be aligned to 256 bytes.
   `ASSERT(IbexBootAddrUnaligned, boot_addr_i[7:0] == 8'h00)

@@ -23,6 +23,7 @@ module ibex_prefetch_buffer (
     output logic        valid_o,
     output logic [31:0] rdata_o,
     output logic [31:0] addr_o,
+    output logic [31:0] addr_next_o,
     output logic        err_o,
     output logic        err_plus2_o,
 
@@ -99,6 +100,7 @@ module ibex_prefetch_buffer (
       .out_ready_i           ( ready_i           ),
       .out_rdata_o           ( rdata_o           ),
       .out_addr_o            ( addr_o            ),
+      .out_addr_next_o       ( addr_next_o       ),
       .out_err_o             ( err_o             ),
       .out_err_plus2_o       ( err_plus2_o       )
   );

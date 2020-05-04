@@ -27,14 +27,16 @@ module ibex_controller #(
     input  logic                  ebrk_insn_i,             // decoder has EBREAK instr
     input  logic                  csr_pipe_flush_i,        // do CSR-related pipeline flush
 
-    // from IF-ID pipeline stage
-    input  logic                  instr_valid_i,           // instr from IF-ID reg is valid
-    input  logic [31:0]           instr_i,                 // instr from IF-ID reg, for mtval
-    input  logic [15:0]           instr_compressed_i,      // instr from IF-ID reg, for mtval
-    input  logic                  instr_is_compressed_i,   // instr from IF-ID reg is compressed
-    input  logic                  instr_fetch_err_i,       // instr from IF-ID reg has error
-    input  logic                  instr_fetch_err_plus2_i, // instr from IF-ID reg error is x32
-    input  logic [31:0]           pc_id_i,                 // instr from IF-ID reg address
+    // instr from IF-ID pipeline stage
+    input  logic                  instr_valid_i,           // instr is valid
+    input  logic [31:0]           instr_i,                 // instr data (uncompressed if compressed
+                                                           // otherwise raw data) for mtval
+    input  logic [15:0]           instr_compressed_i,      // instr compressed data for mtval
+    input  logic                  instr_is_compressed_i,   // instr is compressed
+    input  logic                  instr_bp_taken_i,        // instr was predicted taken branch
+    input  logic                  instr_fetch_err_i,       // instr has error
+    input  logic                  instr_fetch_err_plus2_i, // instr error is x32
+    input  logic [31:0]           pc_id_i,                 // instr address
 
     // to IF-ID pipeline stage
     output logic                  instr_valid_clear_o,     // kill instr in IF-ID reg
@@ -58,6 +60,7 @@ module ibex_controller #(
 
     // jump/branch signals
     input  logic                  branch_set_i,            // branch taken set signal
+    input  logic                  branch_not_set_i,
     input  logic                  jump_set_i,              // jump taken set signal
 
     // interrupt signals
@@ -402,7 +405,11 @@ module ibex_controller #(
         // Set PC mux for branch and jump here to ease timing. Value is only relevant if pc_set_o is
         // also set. Setting the mux value here avoids factoring in special_req and instr_valid_i
         // which helps timing.
-        pc_mux_o = PC_JUMP;
+        // If the current instruction was predicted to be a taken branch or jump then we need to set
+        // the PC to the PC after the current instruction if it was mis-predicted (if was
+        // predicted correctly no PC set occurs and pc_mux_o is irrelevant). Otherwise the PC to set
+        // to is the PC we're jumping/branching to.
+        pc_mux_o = instr_bp_taken_i ? PC_B_NT : PC_JUMP;
 
 
         // Get ready for special instructions, exceptions, pipeline flushes
@@ -414,12 +421,23 @@ module ibex_controller #(
           halt_if     = 1'b1;
         end
 
-        if ((branch_set_i || jump_set_i) && ~special_req_branch) begin
-          pc_set_o       = 1'b1;
+          if (~special_req_branch) begin
+            if ((branch_set_i || jump_set_i)) begin
+              // Only set a PC on branch/jump if the instruction wasn't predicted to be a taken
+              // branch
+              pc_set_o       = ~instr_bp_taken_i;
 
-          perf_tbranch_o = branch_set_i;
-          perf_jump_o    = jump_set_i;
-        end
+              perf_tbranch_o = branch_set_i;
+              perf_jump_o    = jump_set_i;
+            end
+
+            if (instr_bp_taken_i & branch_not_set_i) begin
+              // Always set a PC if the instruction was a predicted taken branch that was
+              // mispredicted (not-taken). PC set will take us back to the instruction following
+              // the mis-predicted branch.
+              pc_set_o = 1'b1;
+            end
+          end
 
         // If entering debug mode or handling an IRQ the core needs to wait
         // until the current instruction has finished executing. Stall IF

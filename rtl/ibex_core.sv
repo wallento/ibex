@@ -903,10 +903,11 @@ module ibex_core #(
 
   if (PMPEnable) begin : g_pmp
     logic [33:0] pmp_req_addr [PMP_NUM_CHAN];
+    logic pmp_tmp;
     pmp_req_e    pmp_req_type [PMP_NUM_CHAN];
     priv_lvl_e   pmp_priv_lvl [PMP_NUM_CHAN];
 
-    assign pmp_req_addr[PMP_I] = {2'b00,instr_addr_o[31:0]};
+    assign pmp_req_addr[PMP_I] = {3'b00,instr_addr_o[31:0]};
     assign pmp_req_type[PMP_I] = PMP_ACC_EXEC;
     assign pmp_priv_lvl[PMP_I] = priv_mode_if;
     assign pmp_req_addr[PMP_D] = {2'b00,data_addr_o[31:0]};
